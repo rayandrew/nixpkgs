@@ -122,7 +122,7 @@ let
     # used by most other Linux distributions by default.
     include ${pkgs.mailcap}/etc/nginx/mime.types;
     # When recommendedOptimisation is disabled nginx fails to start because the mailmap mime.types database
-    # contains 1026 entries and the default is only 1024. Setting to a higher number to remove the need to
+    # contains 1026 enries and the default is only 1024. Setting to a higher number to remove the need to
     # overwrite it because nginx does not allow duplicated settings.
     types_hash_max_size 4096;
 
@@ -191,8 +191,8 @@ let
         brotli_types ${lib.concatStringsSep " " compressMimeTypes};
       ''}
 
-      # https://docs.nginx.com/nginx/admin-guide/web-server/compression/
       ${optionalString cfg.recommendedGzipSettings ''
+        # https://docs.nginx.com/nginx/admin-guide/web-server/compression/
         gzip on;
         gzip_static on;
         gzip_vary on;
@@ -202,14 +202,21 @@ let
         gzip_types ${lib.concatStringsSep " " compressMimeTypes};
       ''}
 
+      ${optionalString cfg.recommendedZstdSettings ''
+        zstd on;
+        zstd_comp_level 9;
+        zstd_min_length 256;
+        zstd_static on;
+        zstd_types ${lib.concatStringsSep " " compressMimeTypes};
+      ''}
+
       ${optionalString cfg.recommendedProxySettings ''
         proxy_redirect          off;
         proxy_connect_timeout   ${cfg.proxyTimeout};
         proxy_send_timeout      ${cfg.proxyTimeout};
         proxy_read_timeout      ${cfg.proxyTimeout};
         proxy_http_version      1.1;
-        # don't let clients close the keep-alive connection to upstream. See the nginx blog for details:
-        # https://www.nginx.com/blog/avoiding-top-10-nginx-configuration-mistakes/#no-keepalives
+        # don't let clients close the keep-alive connection to upstream
         proxy_set_header        "Connection" "";
         include ${recommendedProxyConfig};
       ''}
@@ -303,8 +310,8 @@ let
           if vhost.listen != [ ] then vhost.listen
           else
             let addrs = if vhost.listenAddresses != [ ] then vhost.listenAddresses else cfg.defaultListenAddresses;
-            in optionals (hasSSL || vhost.rejectSSL) (map (addr: { inherit addr; port = cfg.defaultSSLListenPort; ssl = true; }) addrs)
-              ++ optionals (!onlySSL) (map (addr: { inherit addr; port = cfg.defaultHTTPListenPort; ssl = false; }) addrs);
+            in optionals (hasSSL || vhost.rejectSSL) (map (addr: { inherit addr; port = cfg.defaultSSLListenPort; ssl = true; extraParameters = cfg.defaultExtraParameters; }) addrs)
+              ++ optionals (!onlySSL) (map (addr: { inherit addr; port = cfg.defaultHTTPListenPort; ssl = false; extraParameters = cfg.defaultExtraParameters; }) addrs);
 
         hostListen =
           if vhost.forceSSL
@@ -366,6 +373,7 @@ let
           ${concatMapStringsSep "\n" listenString hostListen}
           server_name ${vhost.serverName} ${concatStringsSep " " vhost.serverAliases};
           ${acmeLocation}
+          ${cfg.commonServerConfig}
           ${optionalString (vhost.root != null) "root ${vhost.root};"}
           ${optionalString (vhost.globalRedirect != null) ''
             location / {
@@ -509,6 +517,16 @@ in
         '';
       };
 
+      recommendedZstdSettings = mkOption {
+        default = false;
+        type = types.bool;
+        description = lib.mdDoc ''
+          Enable recommended zstd settings. Learn more about compression in Zstd format [here](https://github.com/tokers/zstd-nginx-module).
+
+          This adds `pkgs.nginxModules.zstd` to `services.nginx.additionalModules`.
+        '';
+      };
+
       proxyTimeout = mkOption {
         type = types.str;
         default = "60s";
@@ -525,6 +543,15 @@ in
         example = literalExpression ''[ "10.0.0.12" "[2002:a00:1::]" ]'';
         description = lib.mdDoc ''
           If vhosts do not specify listenAddresses, use these addresses by default.
+        '';
+      };
+
+      defaultExtraParameters = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = literalExpression ''[ "proxy_protocol" ]'';
+        description = lib.mdDoc ''
+          Parameters to add to all listen directives.
         '';
       };
 
@@ -639,6 +666,15 @@ in
           they are used, e.g. log_format, resolver, etc. inside of server
           or location contexts. Use this attribute to set these definitions
           at the appropriate location.
+        '';
+      };
+
+      commonServerConfig = mkOption {
+        type = types.lines;
+        default = "";
+        description = lib.mdDoc ''
+          Use this setting to add a common configuration snippet to every server block
+          defined in nix options.
         '';
       };
 
@@ -1028,7 +1064,8 @@ in
         })
         dependentCertNames;
 
-    services.nginx.additionalModules = optional cfg.recommendedBrotliSettings pkgs.nginxModules.brotli;
+    services.nginx.additionalModules = lib.optional cfg.recommendedBrotliSettings pkgs.nginxModules.brotli
+      ++ lib.optional cfg.recommendedZstdSettings pkgs.nginxModules.zstd;
 
     systemd.services.nginx = {
       description = "Nginx Web Server";
@@ -1102,9 +1139,7 @@ in
       };
     };
 
-    environment.etc."nginx/nginx.conf" = mkIf cfg.enableReload {
-      source = configFile;
-    };
+    environment.etc."nginx/nginx.conf".source = configFile;
 
     # This service waits for all certificates to be available
     # before reloading nginx configuration.

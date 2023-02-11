@@ -19,7 +19,7 @@ with lib;
 
     serverAliases = mkOption {
       type = types.listOf types.str;
-      default = [];
+      default = [ ];
       example = [ "www.example.org" "example.org" ];
       description = lib.mdDoc ''
         Additional names of virtual hosts served by this virtual host configuration.
@@ -27,13 +27,15 @@ with lib;
     };
 
     listen = mkOption {
-      type = with types; listOf (submodule { options = {
-        addr = mkOption { type = str;  description = lib.mdDoc "IP address.";  };
-        port = mkOption { type = int;  description = lib.mdDoc "Port number."; default = 80; };
-        ssl  = mkOption { type = bool; description = lib.mdDoc "Enable SSL.";  default = false; };
-        extraParameters = mkOption { type = listOf str; description = lib.mdDoc "Extra parameters of this listen directive."; default = []; example = [ "backlog=1024" "deferred" ]; };
-      }; });
-      default = [];
+      type = with types; listOf (submodule {
+        options = {
+          addr = mkOption { type = str; description = lib.mdDoc "IP address."; };
+          port = mkOption { type = int; description = lib.mdDoc "Port number."; default = 80; };
+          ssl = mkOption { type = bool; description = lib.mdDoc "Enable SSL."; default = false; };
+          extraParameters = mkOption { type = listOf str; description = lib.mdDoc "Extra parameters of this listen directive."; default = [ ]; example = [ "backlog=1024" "deferred" ]; };
+        };
+      });
+      default = [ ];
       example = [
         { addr = "195.154.1.1"; port = 443; ssl = true; }
         { addr = "192.154.1.1"; port = 80; }
@@ -59,7 +61,7 @@ with lib;
 
         Note: This option overrides `enableIPv6`
       '';
-      default = [];
+      default = [ ];
       example = [ "127.0.0.1" "[::1]" ];
     };
 
@@ -156,7 +158,7 @@ with lib;
 
     kTLS = mkOption {
       type = types.bool;
-      default = false;
+      default = true;
       description = lib.mdDoc ''
         Whether to enable kTLS support.
         Implementing TLS in the kernel (kTLS) improves performance by significantly
@@ -257,7 +259,7 @@ with lib;
 
     basicAuth = mkOption {
       type = types.attrsOf types.str;
-      default = {};
+      default = { };
       example = literalExpression ''
         {
           user = "password";
@@ -287,7 +289,7 @@ with lib;
       type = types.attrsOf (types.submodule (import ./location-options.nix {
         inherit lib config;
       }));
-      default = {};
+      default = { };
       example = literalExpression ''
         {
           "/" = {
